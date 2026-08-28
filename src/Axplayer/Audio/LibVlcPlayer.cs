@@ -145,6 +145,9 @@ public sealed class LibVlcPlayer : IAudioPlayer
         SetState(PlaybackState.Stopped);
     }
 
+    /// <summary>Forces the reported playback state (buffer mode uses this to show "waiting for feed").</summary>
+    public void ReportState(PlaybackState state) => SetState(state);
+
     private void StopInternal()
     {
         try

@@ -58,6 +58,13 @@ public sealed class App : IDisposable
     private int _reconnectAttempts;
     private Station? _pendingReconnect;
     private DateTime _reconnectAt;
+
+    // --- Buffer mode (play through a local stream buffer) ----------------------
+    private StreamBuffer? _buffer;
+    private bool _bufferModeActive;
+    private bool _bufferPlayStarted;
+    private DateTime _bufferStartedAt;
+    private bool _prevFeedAlive;
     private long _lastTimeMs;
     private DateTime _lastTimeProgress = DateTime.Now;
     private bool _promptCursorOn;
@@ -70,6 +77,7 @@ public sealed class App : IDisposable
         Search,
         ExportPath, ImportPath,
         SleepMinutes,
+        BufferSeconds,
         ConfirmDelete,
         ConfirmDeleteAll,
     }
@@ -146,11 +154,12 @@ public sealed class App : IDisposable
 
             DrainInput();
 
-            // ~2 Hz housekeeping (watchdog + sleep timer).
+            // ~2 Hz housekeeping (watchdog + sleep timer + buffer resume).
             if ((now - lastTick) / (double)Stopwatch.Frequency >= 0.5)
             {
                 lastTick = now;
                 WatchdogTick();
+                BufferTick();
                 CheckSleepTimer();
                 ProcessPendingReconnect();
             }
@@ -282,6 +291,10 @@ public sealed class App : IDisposable
                 ToggleRecord();
                 break;
 
+            case ConsoleKey.G:
+                ToggleAutoRecord();
+                break;
+
             case ConsoleKey.I:
                 _showInfo = !_showInfo;
                 break;
@@ -304,6 +317,19 @@ public sealed class App : IDisposable
 
             case ConsoleKey.Oem2: // '/' (US layout)
                 BeginPrompt(PendingPrompt.Search, "Search:", _search);
+                break;
+
+            case ConsoleKey.A:
+                ToggleQueueMode();
+                break;
+
+            case ConsoleKey.J:
+                SkipToNextManually();
+                break;
+
+            case ConsoleKey.B:
+                BeginPrompt(PendingPrompt.BufferSeconds, "Startup buffer seconds (0=off):",
+                    _settingsManager.Settings.StartupBufferSeconds.ToString());
                 break;
 
             default:
@@ -426,6 +452,21 @@ public sealed class App : IDisposable
                 }
                 break;
 
+            case PendingPrompt.BufferSeconds:
+                if (int.TryParse(value, out int sec) && sec is >= 0 and <= 120)
+                {
+                    _settingsManager.Settings.StartupBufferSeconds = sec;
+                    _settingsManager.Save();
+                    SetStatus(sec > 0
+                        ? $"Startup buffer: {sec}s silent pre-roll when a station starts"
+                        : "Startup buffer: off — stations start immediately");
+                }
+                else
+                {
+                    SetStatus("Invalid buffer — enter whole seconds between 0 and 120", true);
+                }
+                break;
+
             case PendingPrompt.ConfirmDelete:
                 if (value.Equals("y", StringComparison.OrdinalIgnoreCase)
                     || value.Equals("yes", StringComparison.OrdinalIgnoreCase))
@@ -454,8 +495,27 @@ public sealed class App : IDisposable
         PlayStation(_filtered[_selected]);
     }
 
+    /// <summary>Manually resume/skip to the next station in the active queue.</summary>
+    private void SkipToNextManually()
+    {
+        if (!_settingsManager.Settings.PlayQueueMode)
+        {
+            SetStatus("Queue mode is off — press A to enable it", true);
+            return;
+        }
+        if (_filtered.Count == 0)
+        {
+            SetStatus("Queue is empty", true);
+            return;
+        }
+
+        SkipToNext(play: true);
+        SetStatus($"Queue: trying {_currentStation?.Name}…");
+    }
+
     private void PlayStation(Station station)
     {
+        bool wasRecording = _recorder.IsRecording;
         _recorder.Stop();
         _pendingReconnect = null;
         _reconnectAttempts = 0;
@@ -471,10 +531,132 @@ public sealed class App : IDisposable
         _settingsManager.Settings.LastStationUrl = station.Url;
         _settingsManager.Save();
 
-        _player.Play(station.Url);
+        bool bufferMode = _settingsManager.Settings.BufferModeEnabled;
+        _bufferModeActive = bufferMode;
+        _bufferPlayStarted = false;
+        _bufferStartedAt = DateTime.UtcNow;
+        _prevFeedAlive = false;
+
+        if (bufferMode)
+        {
+            // Playback runs from a local buffer file: the stream is downloaded by
+            // StreamBuffer and VLC reads the file, so network blips never produce
+            // player errors and reconnects are gap-free.
+            _buffer?.Stop();
+            _buffer = new StreamBuffer();
+            _buffer.Start(station.Url, AppPaths.BufferDir,
+                _settingsManager.Settings.DropoutDetectSeconds,
+                _settingsManager.Settings.DropoutCoverMinutes);
+            _player.Stop();
+            SetStatus($"Buffering {station.Name} — connecting…");
+        }
+        else
+        {
+            _player.Play(station.Url);
+            SetStatus($"Tuning {station.Name} …");
+        }
+
         _metadata.Start(station.Url);
-        SetStatus($"Tuning {station.Name} …");
+        if (_settingsManager.Settings.AutoRecord || wasRecording)
+        {
+            bool useBufferedSource = _bufferModeActive && _buffer?.StreamUrl is not null;
+            string recordingUrl = useBufferedSource ? _buffer!.StreamUrl! : station.Url;
+            _recorder.Start(recordingUrl, AppPaths.RecordingsDir,
+                _settingsManager.Settings.RecordingSegmentMinutes,
+                localBufferedSource: useBufferedSource,
+                sourceExtension: RecordingExtension(station.Url));
+        }
         Logger.Info($"Playing station: {station.Name} ({station.Url})");
+    }
+
+    /// <summary>
+    /// Drives buffer mode from the main loop (~2 Hz): waits for the initial fill,
+    /// keeps the UI honest while the feed is down, and hands off to the queue/stop
+    /// logic when the cover window is exhausted. VLC resumes on its own when the
+    /// local stream starts flowing again, so there is no resume/seek machinery.
+    /// </summary>
+    private void BufferTick()
+    {
+        if (!_bufferModeActive || _buffer is not { IsActive: true }) return;
+
+        if (_buffer.IsDead)
+        {
+            HandleFeedDead();
+            return;
+        }
+
+        if (!_bufferPlayStarted)
+        {
+            // Initial fill: hold off until the startup pre-roll has accumulated.
+            if (_buffer.FeedAlive && _buffer.FileLengthBytes >= InitialFillBytes())
+                StartBufferPlayback();
+            else if (_buffer.FeedAlive)
+            {
+                int remaining = StartupBufferRemaining();
+                SetStatus(remaining > 0
+                    ? $"{_currentStation?.Name} — startup buffer: {remaining}s remaining…"
+                    : $"{_currentStation?.Name} — startup buffer: almost ready…");
+            }
+            else if (!_buffer.FeedAlive && _prevFeedAlive)
+                SetStatus($"{_currentStation?.Name} — connecting…", true);
+            _prevFeedAlive = _buffer.FeedAlive;
+            return;
+        }
+
+        // Feed down: VLC plays its buffered audio, then waits at the edge on its
+        // own (the local stream never "ends"); we only keep the UI honest.
+        if (!_buffer.FeedAlive)
+        {
+            if (_playback is not (PlaybackState.Playing or PlaybackState.Paused))
+            {
+                if (_playback != PlaybackState.Buffering)
+                {
+                    _player.ReportState(PlaybackState.Buffering);
+                    SetStatus($"{_currentStation?.Name} — feed lost, waiting…", true);
+                }
+            }
+            else if (_playback == PlaybackState.Playing && _prevFeedAlive)
+            {
+                SetStatus($"{_currentStation?.Name} — feed lost, playing from buffer…", true);
+            }
+        }
+        // Feed alive: nothing to do — VLC resumes automatically when bytes flow.
+
+        _prevFeedAlive = _buffer.FeedAlive;
+    }
+
+    private void StartBufferPlayback()
+    {
+        _bufferPlayStarted = true;
+        _player.Play(_buffer!.StreamUrl!);
+    }
+
+    private void HandleFeedDead()
+    {
+        Logger.Warn($"Feed dead for {_currentStation?.Name} — cover window exhausted.");
+        _bufferModeActive = false;
+        _bufferPlayStarted = false;
+        if (_settingsManager.Settings.PlayQueueMode)
+        {
+            SetStatus($"{_currentStation?.Name} is offline — trying next…", true);
+            SkipToNext(play: true);
+        }
+        else
+        {
+            _buffer?.Stop();
+            _player.Stop();
+            SetStatus($"{_currentStation?.Name} is offline — feed lost. Select another station or press S.", true);
+        }
+    }
+
+    /// <summary>Bytes that must accumulate before playback starts (startup pre-roll).</summary>
+    private long InitialFillBytes() =>
+        Math.Max(8 * 1024, _settingsManager.Settings.StartupBufferSeconds * 16 * 1024L);
+
+    private int StartupBufferRemaining()
+    {
+        int total = Math.Max(0, _settingsManager.Settings.StartupBufferSeconds);
+        return Math.Max(0, total - (int)Math.Floor((DateTime.UtcNow - _bufferStartedAt).TotalSeconds));
     }
 
     private void TogglePlayPause()
@@ -496,10 +678,23 @@ public sealed class App : IDisposable
         _metadata.Stop();
         _recorder.Stop();
         _pendingReconnect = null;
+        _buffer?.Stop();
+        _bufferModeActive = false;
+        _bufferPlayStarted = false;
         _songTitle = "";
         _bitrate = "";
         _bufferPct = -1;
         SetStatus("Stopped");
+    }
+
+    /// <summary>Toggle queue mode: on failure, auto-play the next station in the list.</summary>
+    private void ToggleQueueMode()
+    {
+        _settingsManager.Settings.PlayQueueMode = !_settingsManager.Settings.PlayQueueMode;
+        _settingsManager.Save();
+        SetStatus(_settingsManager.Settings.PlayQueueMode
+            ? "Queue mode ON — will autoplay the next station if this one fails to connect"
+            : "Queue mode OFF — failed stations stay stopped");
     }
 
     private void ToggleMute()
@@ -526,6 +721,24 @@ public sealed class App : IDisposable
         SetStatus($"Volume {_volume}%");
     }
 
+    private static string RecordingExtension(string url)
+    {
+        var lower = url.ToLowerInvariant();
+        if (lower.Contains(".ogg") || lower.Contains(".opus")) return ".ogg";
+        if (lower.Contains(".aac")) return ".aac";
+        if (lower.Contains(".flac")) return ".flac";
+        return ".mp3";
+    }
+
+    private void ToggleAutoRecord()
+    {
+        _settingsManager.Settings.AutoRecord = !_settingsManager.Settings.AutoRecord;
+        _settingsManager.Save();
+        SetStatus(_settingsManager.Settings.AutoRecord
+            ? "Auto-record ON — every station starts a rolling recording"
+            : "Auto-record OFF");
+    }
+
     private void ToggleRecord()
     {
         if (_recorder.IsRecording)
@@ -539,8 +752,12 @@ public sealed class App : IDisposable
             SetStatus("Nothing playing to record", true);
             return;
         }
-        _recorder.Start(_currentStation.Url, AppPaths.RecordingsDir);
-        SetStatus($"Recording {_currentStation.Name} → {_recorder.FilePath}");
+        bool useBufferedSource = _bufferModeActive && _buffer?.StreamUrl is not null;
+        string recordingUrl = useBufferedSource ? _buffer!.StreamUrl! : _currentStation.Url;
+        _recorder.Start(recordingUrl, AppPaths.RecordingsDir,
+            _settingsManager.Settings.RecordingSegmentMinutes,
+            localBufferedSource: useBufferedSource);
+        SetStatus($"Recording {_currentStation.Name} → {_recorder.SessionDirectory}");
     }
 
     // ------------------------------------------------------------------
@@ -806,11 +1023,12 @@ public sealed class App : IDisposable
     }
 
     // ------------------------------------------------------------------
-    //  Resilience: watchdog, reconnects, auto-skip
+    //  Resilience: watchdog, reconnects, queue mode
     // ------------------------------------------------------------------
 
     private void WatchdogTick()
     {
+        if (_bufferModeActive) return; // buffer mode has its own resilience
         if (_currentStation is null) return;
         if (_playback is not (PlaybackState.Playing or PlaybackState.Buffering)) return;
 
@@ -830,7 +1048,7 @@ public sealed class App : IDisposable
         }
     }
 
-    /// <summary>Back off and retry; after MaxReconnectAttempts, auto-skip or give up.</summary>
+    /// <summary>Back off and retry; after MaxReconnectAttempts, advance the queue or give up.</summary>
     private void ScheduleReconnect()
     {
         if (_currentStation is null || _pendingReconnect is not null) return;
@@ -853,16 +1071,30 @@ public sealed class App : IDisposable
             _metadata.Stop();
             Logger.Warn($"Giving up on {_currentStation.Name} after {_reconnectAttempts} attempts.");
 
-            if (_settingsManager.Settings.AutoSkipOnDeadStream)
-            {
-                SetStatus($"{_currentStation.Name} is offline — skipping…", true);
-                SkipToNext(play: true);
-            }
+            if (_settingsManager.Settings.PlayQueueMode)
+                AdvanceQueue();
             else
-            {
                 SetStatus($"{_currentStation.Name} is offline. Select another station or press S.", true);
-            }
         }
+    }
+
+    /// <summary>
+    /// Queue mode: play the next station in the current list, cycling forever
+    /// until one connects. The counter shown is the next station's position in
+    /// the list, so it wraps instead of growing unbounded.
+    /// </summary>
+    private void AdvanceQueue()
+    {
+        if (_filtered.Count == 0)
+        {
+            StopPlayback();
+            return;
+        }
+
+        int idx = _currentStation is null ? -1 : _filtered.IndexOf(_currentStation);
+        int next = (idx + 1) % _filtered.Count;
+        SetStatus($"{_currentStation?.Name} is offline — trying next ({next + 1}/{_filtered.Count})…", true);
+        SkipToNext(play: true);
     }
 
     private void ProcessPendingReconnect()
@@ -918,6 +1150,7 @@ public sealed class App : IDisposable
         catch { w = 120; h = 30; }
 
         int playingIndex = _currentStation is null ? -1 : _filtered.IndexOf(_currentStation);
+        int? queuePosition = playingIndex >= 0 ? playingIndex + 1 : null;
         var (connLabel, connColor) = Connection();
 
         var snapshot = new UiSnapshot
@@ -940,8 +1173,12 @@ public sealed class App : IDisposable
             BufferPct = _bufferPct,
             Recording = _recorder.IsRecording,
             RecFile = _recorder.FilePath,
+            AutoRecord = _settingsManager.Settings.AutoRecord,
             Status = _status,
             StatusIsError = _statusIsError,
+            QueueMode = _settingsManager.Settings.PlayQueueMode,
+            QueuePosition = queuePosition,
+            QueueCount = _filtered.Count,
             Prompt = _prompt,
             PromptCursorOn = _promptCursorOn,
             ShowInfo = _showInfo,
@@ -1047,6 +1284,18 @@ public sealed class App : IDisposable
         lines.Add($"  URL:      [{t.Dim}]{Markup.Escape(s.Url)}[/]");
         lines.Add($"  Genre:    {Markup.Escape(s.Genre.PadRight(20))}  Favorites: {(s.IsFavorite ? "[red]* yes[/]" : "[grey]no[/]")}");
         lines.Add($"  Bitrate:  {(string.IsNullOrWhiteSpace(_bitrate) ? "[grey]--[/]" : _bitrate)}   Plays: {s.PlayCount}");
+        int prerollSec = _settingsManager.Settings.StartupBufferSeconds;
+        string preroll = prerollSec > 0
+            ? $"[{t.Accent}]{prerollSec}s initial buffer[/]"
+            : "[grey]off[/]";
+        lines.Add($"  Pre-roll: {preroll}");
+        if (_bufferModeActive && _buffer is { IsActive: true })
+        {
+            string feed = _buffer.IsDead ? $"[{t.Err}]lost[/]"
+                : _buffer.FeedAlive ? $"[{t.Ok}]live[/]"
+                : $"[{t.Warn}]reconnecting…[/]";
+            lines.Add($"  Feed:     {feed}   buffered: {_buffer.FileLengthBytes / 1024} KB");
+        }
         lines.Add($"  State:    [{Connection().Color}]{Connection().Label}[/]");
         lines.Add($"  Now:      {Markup.Escape(_songTitle.Length == 0 ? "(no metadata)" : _songTitle)}");
         lines.Add("");
@@ -1067,6 +1316,7 @@ public sealed class App : IDisposable
     {
         _cts.Cancel();
         _recorder.Stop();
+        _buffer?.Stop();
         _metadata.Stop();
         if (_currentStation is not null)
             _settingsManager.Settings.LastStationUrl = _currentStation.Url;

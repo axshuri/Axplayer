@@ -30,6 +30,10 @@ public sealed class UiSnapshot
     public int BufferPct { get; init; } = -1;
     public bool Recording { get; init; }
     public string? RecFile { get; init; }
+    public bool AutoRecord { get; init; }
+    public bool QueueMode { get; init; }
+    public int? QueuePosition { get; init; }
+    public int QueueCount { get; init; }
     public string Status { get; init; } = "";
     public bool StatusIsError { get; init; }
     public PromptSession? Prompt { get; init; }
@@ -140,10 +144,10 @@ public sealed class UiSnapshot
         Recorder.MarkupLine(Divider(w, theme));
 
         // --- Now playing -------------------------------------------------------
-        Recorder.MarkupLine(Row(NowPlayingBar.BuildTitleLine(s.StationName, s.SongTitle, s.State, content, theme), content));
+        Recorder.MarkupLine(Row(NowPlayingBar.BuildTitleLine(s.StationName, s.SongTitle, s.State, s.QueueMode, s.QueuePosition, s.QueueCount, content, theme), content));
 
         // --- Stats ---------------------------------------------------------------
-        Recorder.MarkupLine(Row(NowPlayingBar.BuildStatsLine(s.Volume, s.Muted, s.Bitrate, s.BufferPct, s.Recording, s.RecFile, content, theme), content));
+        Recorder.MarkupLine(Row(NowPlayingBar.BuildStatsLine(s.Volume, s.Muted, s.Bitrate, s.BufferPct, s.Recording, s.RecFile, s.AutoRecord, s.QueueMode, content, theme), content));
 
         // --- Visualizer -----------------------------------------------------------
         if (s.ShowVisualizer && s.Visualizer is not null)
@@ -199,7 +203,7 @@ public sealed class UiSnapshot
         $"[{t.Dim}][[P]]lay [[S]]top [[F]]av [[+/-]]Vol [[M]]ute [[Tab]]view [[Enter]]play [[R]]ec [[I]]nfo [[Q]]uit[/]";
 
     private static string HelpLine2(UiTheme t) =>
-        $"[{t.Dim}][[N]]ew [[E]]dit [[D]]el [[Ctrl+D]]elAll | /search | Ctrl+R refresh[/]";
+        $"[{t.Dim}][[J]]next [[N]]ew [[E]]dit [[D]]el [[Ctrl+D]]elAll | /search | Ctrl+R refresh | [[A]]queue [[B]]buffer [[G]]auto-rec[/]";
 
     /// <summary>Append a fill character so the markup line reaches exactly `width` visible cells.</summary>
     private static string PadToWidth(string markup, int width)

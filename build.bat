@@ -97,7 +97,7 @@ echo   To call it as "axplayer" from any Command Prompt, use:
 echo       add-to-path.bat
 echo ============================================================
 echo.
-choice /c YN /n /m "Add this exe to your system PATH now? [Y/N]: "
+choice /c YN /n /m "Add this exe to your user PATH now? [Y/N]: "
 if not errorlevel 2 (
     set "AX_SKIP_PROMPT=1"
     call "%~dp0add-to-path.bat" "%~dp0src\Axplayer\bin\Release\net10.0\%AX_ARCH%\publish"

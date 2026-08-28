@@ -14,6 +14,7 @@ public sealed record AppOptions
     public string? DataDir { get; init; }
     public string? ProbeUrl { get; init; }
     public string? PlayTestUrl { get; init; }
+    public string? BufferTestUrl { get; init; }
     public int PlayTestSeconds { get; init; } = 15;
     public bool UiPreview { get; init; }
     public bool Check { get; init; }
@@ -51,6 +52,7 @@ internal static class Program
 
         if (options.ProbeUrl is not null) return Probe(options.ProbeUrl);
         if (options.PlayTestUrl is not null) return PlayTest(options.PlayTestUrl, options.PlayTestSeconds);
+        if (options.BufferTestUrl is not null) return BufferTest(options.BufferTestUrl, options.PlayTestSeconds);
         if (options.UiPreview) return UiPreview();
         if (options.RefreshCatalog) return RefreshCatalogAndExit(options.CatalogBaseUrl);
         if (options.Check) return SelfCheck();
@@ -84,7 +86,7 @@ internal static class Program
 
     private static AppOptions ParseArgs(string[] args)
     {
-        string? stationUrl = null, dataDir = null, probeUrl = null, playTestUrl = null, catalogUrl = FmstreamCatalog.DefaultBaseUrl;
+        string? stationUrl = null, dataDir = null, probeUrl = null, playTestUrl = null, bufferTestUrl = null, catalogUrl = FmstreamCatalog.DefaultBaseUrl;
         int? volume = null;
         int playTestSeconds = 15;
         bool noVisualizer = false, check = false, help = false, version = false, uiPreview = false, refreshCatalog = false;
@@ -111,6 +113,9 @@ internal static class Program
                     break;
                 case "--play-test":
                     playTestUrl = NextValue(args, ref i, "--play-test");
+                    break;
+                case "--buffer-test":
+                    bufferTestUrl = NextValue(args, ref i, "--buffer-test");
                     break;
                 case "--seconds":
                     if (int.TryParse(NextValue(args, ref i, "--seconds"), out int sec))
@@ -150,6 +155,7 @@ internal static class Program
             DataDir = dataDir,
             ProbeUrl = probeUrl,
             PlayTestUrl = playTestUrl,
+            BufferTestUrl = bufferTestUrl,
             PlayTestSeconds = playTestSeconds,
             UiPreview = uiPreview,
             Check = check,
@@ -212,6 +218,7 @@ internal static class Program
               --data-dir <path>   Use a custom data directory (default: ./data next to the exe)
               --probe <url>       Validate a stream URL and print its ICY info, then exit
               --play-test <url>   Headless playback test for a few seconds, then exit
+              --buffer-test <url> Buffer-mode smoke test (buffer + play the local file), then exit
               --refresh-catalog   Re-download the station catalog from fmstream.org, then exit
               --catalog-url <url> Override the fmstream.org directory base URL
               --check             Verify LibVLC/dependencies are working, then exit
@@ -279,6 +286,10 @@ internal static class Program
             BufferPct = 100,
             Recording = true,
             RecFile = "rec_20260828_120000.mp3",
+            AutoRecord = true,
+            QueueMode = true,
+            QueuePosition = 3,
+            QueueCount = stations.Count,
             Status = "Now playing a track",
             Theme = UiTheme.Dark,
             Visualizer = viz,
@@ -351,6 +362,71 @@ internal static class Program
         player.Stop();
         Console.WriteLine($"  Result:   reachedPlaying={reachedPlaying} | title={(title.Length == 0 ? "(none)" : title)} | bitrate={bitrate ?? "?"} | icy={(icy ? "yes" : "no")}");
         return reachedPlaying ? 0 : 1;
+    }
+
+    /// <summary>
+    /// Headless smoke test for buffer mode: starts a StreamBuffer (download + local
+    /// HTTP server), waits for the startup pre-roll to fill, plays the local stream
+    /// with LibVLC, and reports whether the feed is alive and playback advances.
+    /// </summary>
+    private static int BufferTest(string url, int seconds)
+    {
+        Console.WriteLine($"Buffering {url} for up to {seconds}s (buffer-mode smoke test) …");
+
+        using var player = new LibVlcPlayer(1500);
+        using var buffer = new StreamBuffer();
+
+        var state = PlaybackState.Stopped;
+        bool reachedPlaying = false;
+        bool fileGrew = false;
+        bool startedPlayback = false;
+        long lastLen = -1;
+
+        player.StateChanged += (_, s) =>
+        {
+            state = s;
+            if (s == PlaybackState.Playing) reachedPlaying = true;
+            Console.WriteLine($"  [state]   {s}");
+        };
+
+        buffer.Start(url, AppPaths.BufferDir, 2, 5);
+        Console.WriteLine($"  [server]  {buffer.StreamUrl}");
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var lastPoll = sw.Elapsed.TotalSeconds;
+        while (sw.Elapsed.TotalSeconds < seconds)
+        {
+            Thread.Sleep(500);
+
+            long len = buffer.FileLengthBytes;
+            if (len > 0) fileGrew = true;
+            if (len != lastLen)
+            {
+                lastLen = len;
+                Console.WriteLine($"  [buffer]  {len / 1024} KB  feed={(buffer.FeedAlive ? "alive" : "down")}");
+            }
+
+            // Mimic the app: start playback once the 2s pre-roll (~32 KB) has filled.
+            if (!startedPlayback && buffer.FeedAlive && len >= 32 * 1024)
+            {
+                startedPlayback = true;
+                player.Play(buffer.StreamUrl!);
+                Console.WriteLine("  [play]    started from local stream");
+            }
+
+            if (sw.Elapsed.TotalSeconds - lastPoll >= 5 && startedPlayback)
+            {
+                lastPoll = sw.Elapsed.TotalSeconds;
+                Console.WriteLine($"  [pos]     time={player.TimeMs} ms");
+            }
+        }
+
+        bool feedAliveAtEnd = buffer.FeedAlive;
+        long buffered = lastLen;
+        player.Stop();
+        buffer.Stop();
+        Console.WriteLine($"  Result:   reachedPlaying={reachedPlaying} | feedAlive={feedAliveAtEnd} | fileGrew={fileGrew} | buffered={buffered / 1024} KB | state={state}");
+        return reachedPlaying && fileGrew ? 0 : 1;
     }
 
     private static int SelfCheck()

@@ -35,6 +35,9 @@ public interface IAudioPlayer : IDisposable
     /// <summary>Play a stream URL, replacing whatever was playing.</summary>
     void Play(string url);
 
+    /// <summary>Force the reported playback state (buffer mode uses this to show "waiting for feed").</summary>
+    void ReportState(PlaybackState state);
+
     void SetPause(bool paused);
 
     void Stop();

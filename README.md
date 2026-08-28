@@ -19,8 +19,8 @@ Axplayer brings a full radio workflow into a retro terminal UI: browse categoriz
 - **Radio in, terminal out.** LibVLC handles MP3, AAC, OGG/Opus, and FLAC internet streams without a browser or WebView2 runtime.
 - **Metadata that follows the stream.** Axplayer reads ICY `StreamTitle` blocks in real time and falls back to LibVLC metadata when a server does not expose ICY metadata.
 - **A catalog that is useful on first launch.** Stations are fetched by genre from [fmstream.org](http://nossl.fmstream.org), cached locally, and replaced by a small built-in fallback when the directory is unavailable.
-- **Designed for unreliable streams.** Buffering state, a stall watchdog, exponential-backoff reconnects, and optional auto-skip keep a dead station from blocking the session.
-- **Your local radio library.** Favorites, imported stations, play counts, settings, logs, and recordings live under one `data/` directory.
+- **Designed for unreliable streams.** Playback runs through a local buffer: the stream is downloaded to a temp file and served back over localhost, so network blips never interrupt audio (VLC simply waits at the buffer edge) and the feed reconnects gap-free. A dropout longer than 2s triggers automatic reconnection for up to a 5-minute cover window, a configurable startup pre-roll buffers the stream before audio begins, and queue mode (`A`) auto-plays the next station when one dies while showing its position (for example `3/11`).
+- **Your local radio library.** Favorites, imported stations, play counts, settings, logs, and recordings live under one `data/` directory. Automatic recording can run indefinitely, grouping each five-minute segment inside a timestamped session folder so long sessions stay organized. With buffered playback enabled, recording reads the same localhost buffer instead of opening a second radio connection.
 
 <p align="center">
   <img src="assets/readme/section-build.svg" width="100%" alt="Build and run Axplayer from a terminal">
@@ -86,6 +86,9 @@ add-to-path.bat
 | `I` | Show station info and history | `T` | Set sleep timer |
 | `X` / `L` | Export / import favorites | `C` | Cycle theme |
 | `Ctrl+R` | Refresh catalog | `Q` / `Esc` | Quit |
+| `A` | Toggle queue mode — auto-plays the next station if one fails to connect | `B` | Set startup buffer seconds (pre-roll) |
+| `J` | Manually skip/resume the next queue station | `G` | Toggle automatic recording |
+
 
 ## Command-line modes
 
@@ -99,7 +102,8 @@ Axplayer.exe --no-visualizer         Hide the spectrum panel
 Axplayer.exe --data-dir <path>       Store data somewhere else
 Axplayer.exe --probe <url>            Validate a stream and print ICY information
 Axplayer.exe --play-test <url>       Run a headless playback smoke test
-Axplayer.exe --seconds <3-120>       Set the --play-test duration (default: 15)
+Axplayer.exe --buffer-test <url>     Buffer-mode smoke test (buffer + play the local stream)
+Axplayer.exe --seconds <3-120>       Set the --play-test/--buffer-test duration (default: 15)
 Axplayer.exe --refresh-catalog        Refresh the station catalog, then exit
 Axplayer.exe --catalog-url <url>     Use a different catalog base URL
 Axplayer.exe --check                 Verify data files and LibVLC, then exit
@@ -125,7 +129,7 @@ fmstream.org ── categorized fetch ──┐
                                                      │
                                       selected URL ──┼──> LibVLC audio playback
                                                      ├──> ICY metadata reader ──> now playing
-                                                     ├──> stall watchdog ──> reconnect / auto-skip
+                                                     ├──> stall watchdog ──> reconnect / queue
                                                      └──> raw stream recorder ──> data/recordings/
 ```
 
@@ -137,11 +141,11 @@ Axplayer creates its runtime data next to the executable unless `--data-dir` is 
 
 ```text
 data/
-├── settings.json       # volume, theme, last station, visualizer and network settings
+├── settings.json       # volume, theme, last station, buffer, queue, recording and network settings
 ├── stations.json       # catalog, custom stations, favorites and play counts
 ├── favorites.txt       # default export/import target for favorites
 ├── logs/               # timestamped diagnostics
-└── recordings/         # raw stream recordings created with R
+└── recordings/         # timestamped session folders containing recording segments
 ```
 
 The single-file publish embeds the LibVLC runtime and extracts native components to a temporary directory on first launch. A normal framework-dependent run uses the restored NuGet assets instead.
@@ -154,6 +158,7 @@ src/Axplayer/
 ├── App.cs                     # application state, input, playback and reconnect loop
 ├── Audio/
 │   ├── LibVlcPlayer.cs        # LibVLC playback backend
+│   ├── StreamBuffer.cs        # local buffered playback and dropout recovery
 │   ├── StreamProbe.cs         # URL validation and stream headers
 │   └── IcyMetadataReader.cs   # live StreamTitle parsing
 ├── Config/                    # settings model and JSON persistence
@@ -173,7 +178,7 @@ src/Axplayer/
 - The visualizer is **procedurally simulated**, not decoded PCM. LibVLC plays the audio internally, and this console app does not receive sample data for the bars.
 - Live titles depend on server metadata. A stream must honor `Icy-MetaData: 1`; otherwise Axplayer uses LibVLC metadata when available or displays no title.
 - Catalog refresh depends on fmstream.org. Requests are rate-gated and retried with backoff; the cached list is retained if refresh fails.
-- Recordings contain raw stream bytes without transcoding. The file extension is inferred from the stream’s likely format.
+- Recordings contain raw stream bytes without transcoding. In buffered mode they are copied from the shared local stream, avoiding a second network connection. Each recording session gets a timestamped folder, and long sessions are split into five-minute segments inside it. The file extension is inferred from the stream’s likely format.
 - The interactive UI requires a real keyboard terminal; use `--probe`, `--play-test`, `--check`, or `--ui-preview` for non-interactive diagnostics.
 
 ## License

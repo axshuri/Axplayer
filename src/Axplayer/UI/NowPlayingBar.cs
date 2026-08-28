@@ -9,7 +9,8 @@ namespace Axplayer.UI;
 /// </summary>
 public static class NowPlayingBar
 {
-    public static string BuildTitleLine(string stationName, string songTitle, PlaybackState state, int width, UiTheme theme)
+    public static string BuildTitleLine(string stationName, string songTitle, PlaybackState state,
+        bool queueMode, int? queuePosition, int queueCount, int width, UiTheme theme)
     {
         string stateTag = state switch
         {
@@ -21,11 +22,14 @@ public static class NowPlayingBar
         };
 
         string station = string.IsNullOrWhiteSpace(stationName) ? "unknown" : Markup.Escape(Truncate(stationName, 28));
+        string queue = queueMode && queuePosition is > 0 && queueCount > 0
+            ? $"[{theme.Dim}][[{queuePosition}/{queueCount}]][/] "
+            : "";
         string title = string.IsNullOrWhiteSpace(songTitle)
             ? $"[{theme.Dim}](no metadata yet)[/]"
             : Markup.Escape(Truncate(songTitle, Math.Max(20, width - 52)));
 
-        string line = $"{stateTag} [bold {theme.Accent}]{station}[/]";
+        string line = $"{stateTag} {queue}[bold {theme.Accent}]{station}[/]";
         if (!string.IsNullOrWhiteSpace(songTitle))
             line += $"  {title}";
 
@@ -34,7 +38,7 @@ public static class NowPlayingBar
 
     public static string BuildStatsLine(
         int volume, bool muted, string bitrate, int bufferPct,
-        bool recording, string? recFile, int width, UiTheme theme)
+        bool recording, string? recFile, bool autoRecord, bool queueMode, int width, UiTheme theme)
     {
         string volText = muted
             ? $"[{theme.Warn}]MUTED[/]"
@@ -55,7 +59,10 @@ public static class NowPlayingBar
             ? $"[red]REC[/][{theme.Dim}] {Markup.Escape(Path.GetFileName(recFile ?? ""))}[/]"
             : "";
 
-        return $"{volText} | {bitrateText} | {buffer} | {rec}".TrimEnd(' ', '|');
+        string queue = queueMode ? $"[{theme.Accent}]queue:on[/]" : "";
+        string auto = autoRecord ? $"[{theme.Accent}]auto-rec:on[/]" : "";
+
+        return $"{volText} | {bitrateText} | {buffer} | {queue} | {auto} | {rec}".TrimEnd(' ', '|');
     }
 
     private static string Truncate(string text, int max) =>

@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="400" viewBox="0 0 1200 400" role="img" aria-labelledby="title desc">
+  <title id="title">Axplayer — terminal radio player</title>
+  <desc id="desc">A dark terminal-inspired Axplayer hero showing a station list, now-playing metadata, resilient stream status, and an ASCII spectrum.</desc>
+  <rect width="1200" height="400" rx="24" fill="#101418"/>
+  <rect x="24" y="24" width="1152" height="352" rx="16" fill="#171d22" stroke="#35424a" stroke-width="2"/>
+  <rect x="24" y="24" width="1152" height="42" rx="16" fill="#202a30"/>
+  <circle cx="52" cy="45" r="6" fill="#e06c75"/><circle cx="74" cy="45" r="6" fill="#e5c07b"/><circle cx="96" cy="45" r="6" fill="#98c379"/>
+  <text x="128" y="51" fill="#9daab2" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">axplayer.exe -- interactive session</text>
+
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace">
+    <text x="58" y="112" fill="#61afef" font-size="16">RETRO TERMINAL RADIO</text>
+    <text x="58" y="164" fill="#f5f7f9" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-weight="700" font-size="52">Axplayer</text>
+    <text x="60" y="198" fill="#c7d0d6" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="21">Listen, browse, record, and recover —</text>
+    <text x="60" y="227" fill="#c7d0d6" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="21">without leaving your terminal.</text>
+    <text x="60" y="278" fill="#98c379" font-size="17">[PLAYING]</text>
+    <text x="178" y="278" fill="#9daab2" font-size="17">ICY metadata • favorites • reconnects</text>
+    <text x="60" y="327" fill="#5c6971" font-size="15">Space play/pause   Tab favorites   R record   Q quit</text>
+  </g>
+
+  <g transform="translate(700 92)" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">
+    <rect width="416" height="232" rx="10" fill="#0d1114" stroke="#3d4c55"/>
+    <text x="20" y="29" fill="#98c379" font-size="15">AXPLAYER v1.0</text>
+    <text x="300" y="29" fill="#98c379" font-size="15">● PLAYING</text>
+    <path d="M20 43H396" stroke="#35424a"/>
+    <text x="20" y="69" fill="#61afef" font-size="14">ALL STATIONS</text>
+    <text x="20" y="96" fill="#f5f7f9" font-size="15">&gt; 1. Radio Paradise</text>
+    <text x="20" y="120" fill="#aab5bb" font-size="15">  2. Jazz24</text>
+    <text x="20" y="144" fill="#aab5bb" font-size="15">  3. SomaFM Groove Salad</text>
+    <text x="20" y="175" fill="#e5c07b" font-size="15">NOW PLAYING</text>
+    <text x="20" y="198" fill="#f5f7f9" font-size="15">Some Great Song — The Artist</text>
+    <path d="M20 211h10v-8h10v15h10v-23h10v12h10v-31h10v27h10v-14h10v22h10v-8h10v15h10v-27h10v15h10v-20h10v29h10v-13h10v21h10v-8h10v12h10v-19h10v15h10v-25h10v18h10v-9h10v18h10v-13h10v20h10v-27h10v18h10v-8h10v17h10v-13h10v10h10v-19h10v23h10v-8h10v12h10" fill="none" stroke="#61afef" stroke-width="3" stroke-linecap="square"/>
+  </g>
+</svg>

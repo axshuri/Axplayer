@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="150" viewBox="0 0 1200 150" role="img" aria-labelledby="title desc">
+  <title id="title">Controls</title>
+  <desc id="desc">Axplayer keyboard controls section header with terminal-style keycaps.</desc>
+  <rect width="1200" height="150" rx="22" fill="#171d22" stroke="#35424a" stroke-width="2"/>
+  <path d="M58 109H1142" stroke="#35424a"/>
+  <text x="60" y="65" fill="#61afef" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="17">[ INPUT ]</text>
+  <text x="60" y="106" fill="#f5f7f9" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="36" font-weight="700">Keyboard-first by design</text>
+  <g transform="translate(790 42)" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16">
+    <rect width="70" height="42" rx="8" fill="#202a30" stroke="#50616b"/><text x="22" y="27" fill="#f5f7f9">Tab</text>
+    <rect x="82" width="70" height="42" rx="8" fill="#202a30" stroke="#50616b"/><text x="104" y="27" fill="#f5f7f9">Enter</text>
+    <rect x="164" width="70" height="42" rx="8" fill="#202a30" stroke="#50616b"/><text x="188" y="27" fill="#f5f7f9">R</text>
+    <rect x="246" width="70" height="42" rx="8" fill="#202a30" stroke="#98c379"/><text x="270" y="27" fill="#98c379">Q</text>
+  </g>
+</svg>

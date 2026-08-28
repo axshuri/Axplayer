@@ -1,158 +1,169 @@
 # Axplayer
 
-A retro terminal radio player for internet streams (Icecast / Shoutcast). Keyboard-first
-TUI in the spirit of `cmus` / `ncmpcpp` — box-drawn panels, a live ASCII spectrum
-analyzer, real ICY song metadata, favorites, and resilient reconnection.
+> A keyboard-first internet radio player for Windows terminals.
 
-Preview of the TUI frame (see [`docs/preview.txt`](docs/preview.txt) for the rendered output):
+Axplayer brings a full radio workflow into a retro terminal UI: browse categorized stations, play Icecast/Shoutcast streams, follow live song metadata, save favorites, record raw audio, and keep listening when a stream briefly drops.
 
-## Features
+<p align="center">
+  <img src="docs/preview.txt" alt="Axplayer terminal interface showing stations, playback status, now-playing metadata, recording status, and an ASCII spectrum visualizer" width="100%">
+</p>
 
-- **Audio playback** via **LibVLC** (LibVLCSharp) — plays MP3, AAC, OGG/Opus, FLAC
-  streams headless from the console; no WebView2 runtime required.
-- **Retro TUI** built with Spectre.Console: top bar (title, clock, connection status),
-  station list, now-playing bar, spectrum visualizer, status line and shortcut hints.
-- **Live song metadata** — a dedicated ICY metadata reader parses `StreamTitle` blocks
-  in real time (with reconnection/backoff); falls back to VLC's own metadata for
-  streams without ICY (e.g. OGG).
-- **Categorized stations from [fmstream.org](http://nossl.fmstream.org)** — the
-  master list is fetched by category (Jazz, Rock, Classical, Electronic, Hip-Hop/R&B,
-  Country, News, Talk, Oldies, Chill/Lounge, Alternative/Metal, World) on first run and
-  cached to `data/stations.json`. Refresh any time with `Ctrl+R` or
-  `--refresh-catalog`. If the directory can't be reached, a small built-in fallback
-  list is used.
-- **Favorites** — saved to `data/stations.json`, preserved across catalog refreshes
-  (matched by stream URL), with import/export.
-- **Resilience** — buffering indicators, stall watchdog, exponential-backoff reconnect,
-  and auto-skip to the next station when a stream is dead. The catalog fetcher is
-  polite to fmstream.org (rate-gated, retries 429s with backoff).
-- **Recording** — `R` saves the raw stream to `data/recordings/`.
-- **Settings** — `data/settings.json`: default volume, last station, autoplay, theme,
-  buffer, visualizer tuning.
+> The preview above is plain-text output from `--ui-preview`, so the repository’s actual interface remains inspectable without a screenshot.
 
-## Build & run
+## Why Axplayer?
 
-Prerequisites: [.NET SDK](https://dotnet.microsoft.com/download) 8 or later
-(developed on .NET 10). Windows 10+ (Windows Terminal recommended).
+- **Radio in, terminal out.** LibVLC handles MP3, AAC, OGG/Opus, and FLAC internet streams without a browser or WebView2 runtime.
+- **Metadata that follows the stream.** Axplayer reads ICY `StreamTitle` blocks in real time and falls back to LibVLC metadata when a server does not expose ICY metadata.
+- **A catalog that is useful on first launch.** Stations are fetched by genre from [fmstream.org](http://nossl.fmstream.org), cached locally, and replaced by a small built-in fallback when the directory is unavailable.
+- **Designed for unreliable streams.** Buffering state, a stall watchdog, exponential-backoff reconnects, and optional auto-skip keep a dead station from blocking the session.
+- **Your local radio library.** Favorites, imported stations, play counts, settings, logs, and recordings live under one `data/` directory.
 
-### One-click build (Windows)
+## Quick start
 
-```bat
-build.bat              rem build the single-file .exe (auto-detects x64/arm64)
-build.bat -r           rem clean + rebuild
-```
+### Requirements
 
-This publishes the self-contained single-file exe to
-`src/Axplayer/bin/Release/net10.0/<rid>/publish/Axplayer.exe`, prints the size, and
-optionally adds it to your user PATH (see below).
+- Windows 10 or later
+- [.NET SDK 10](https://dotnet.microsoft.com/download) or later
+- Windows Terminal recommended for the best Unicode box-drawing and color support
 
-### To call `axplayer` from any Command Prompt
-
-```bat
-add-to-path.bat        rem add the default x64 publish folder to your user PATH
-add-to-path.bat "C:\path\to\publish"
-```
-
-Then open a **new** terminal window and run:
-
-```bat
-axplayer
-```
-
-### Manual builds
+### Run from source
 
 ```bash
-# Build and run (framework-dependent)
 dotnet run --project src/Axplayer
-
-# Self-contained single-file .exe (win-x64)
-dotnet publish src/Axplayer -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
-# → src/Axplayer/bin/Release/net10.0/win-x64/publish/Axplayer.exe
 ```
 
-The single-file exe embeds the libvlc runtime (x64) and self-extracts it to a temp
-directory on first run. The `data/` folder (settings, stations, logs, recordings)
-is created next to the executable.
+The first run starts with the bundled fallback stations while it refreshes the categorized catalog in the background. Press `Enter` on a station to play it.
 
-## Controls
+### Build a portable executable
 
-| Key            | Action                              | Key            | Action                    |
-|----------------|-------------------------------------|----------------|---------------------------|
-| `Space` / `P`  | Play / pause selected station       | `S`            | Stop                      |
-| `+` / `-`      | Volume up / down                    | `M`            | Mute / unmute             |
-| `F`            | Toggle favorite                     | `Tab`          | All stations / Favorites  |
-| `↑` / `↓`      | Navigate list                       | `Enter`        | Play selected             |
-| `N`            | Add station (URL validated)         | `D`            | Delete selected           |
-| `E`            | Edit station (name/URL/genre)       | `Ctrl+D`       | Delete all stations       |
-| `/`            | Search by name / genre              |                |                           |
-| `R`            | Record / stop recording             | `I`            | Station info + history    |
-| `Ctrl+R`       | Refresh catalog from fmstream.org   |                |                           |
-| `T`            | Sleep timer (minutes)               | `X` / `L`      | Export / import favorites |
-| `C`            | Cycle color theme                   | `Q` / `Esc`    | Quit                      |
+The repository includes a Windows build script that publishes a self-contained, single-file executable and detects x64/ARM64 automatically:
 
-## Command line
-
-```
-Axplayer.exe --station <url>        Play a stream URL on startup
-Axplayer.exe --volume 50            Override default volume (0-100)
-Axplayer.exe --no-visualizer        Disable the spectrum analyzer
-Axplayer.exe --data-dir <path>      Custom data directory
-Axplayer.exe --probe <url>          Validate a URL and print its ICY info
-Axplayer.exe --play-test <url>      Headless playback test (15s) for debugging
-Axplayer.exe --refresh-catalog      Re-download the categorized catalog, then exit
-Axplayer.exe --catalog-url <url>    Override the fmstream.org directory base URL
-Axplayer.exe --check                Verify LibVLC and dependencies
-Axplayer.exe --ui-preview           Render one TUI frame and exit (dev tool)
+```bat
+build.bat
 ```
 
-## Project structure
+For a clean rebuild:
 
+```bat
+build.bat -r
 ```
+
+The executable is written to:
+
+```text
+src/Axplayer/bin/Release/net10.0/<rid>/publish/Axplayer.exe
+```
+
+To launch it as `axplayer` from a new terminal window, optionally add the publish directory to your user `PATH`:
+
+```bat
+add-to-path.bat
+```
+
+## TUI controls
+
+| Key | Action | Key | Action |
+| --- | --- | --- | --- |
+| `Space` / `P` | Play or pause selected station | `S` | Stop playback |
+| `Enter` | Play selected station | `↑` / `↓` | Navigate stations |
+| `Tab` | Switch all stations / favorites | `/` | Search by name or genre |
+| `F` | Toggle favorite | `N` | Add a station |
+| `E` | Edit station | `D` | Delete selected station |
+| `Ctrl+D` | Delete all stations | `R` | Record / stop recording |
+| `+` / `-` | Change volume | `M` | Mute / unmute |
+| `I` | Show station info and history | `T` | Set sleep timer |
+| `X` / `L` | Export / import favorites | `C` | Cycle theme |
+| `Ctrl+R` | Refresh catalog | `Q` / `Esc` | Quit |
+
+## Command-line modes
+
+Use the executable after publishing, or replace `Axplayer.exe` with `dotnet run --project src/Axplayer --` while developing.
+
+```text
+Axplayer.exe                         Launch the interactive TUI
+Axplayer.exe --station <url>         Play a stream URL on startup
+Axplayer.exe --volume <0-100>        Override the default volume
+Axplayer.exe --no-visualizer         Hide the spectrum panel
+Axplayer.exe --data-dir <path>       Store data somewhere else
+Axplayer.exe --probe <url>            Validate a stream and print ICY information
+Axplayer.exe --play-test <url>       Run a headless playback smoke test
+Axplayer.exe --seconds <3-120>       Set the --play-test duration (default: 15)
+Axplayer.exe --refresh-catalog        Refresh the station catalog, then exit
+Axplayer.exe --catalog-url <url>     Use a different catalog base URL
+Axplayer.exe --check                 Verify data files and LibVLC, then exit
+Axplayer.exe --ui-preview            Render one sample TUI frame, then exit
+Axplayer.exe --help                  Show all options
+Axplayer.exe --version               Show the version
+```
+
+Useful checks after a build:
+
+```bat
+Axplayer.exe --check
+Axplayer.exe --ui-preview
+Axplayer.exe --probe https://example.com/stream
+```
+
+## How it works
+
+```text
+fmstream.org ── categorized fetch ──┐
+                                    v
+                              stations.json ──> station list / favorites
+                                                     │
+                                      selected URL ──┼──> LibVLC audio playback
+                                                     ├──> ICY metadata reader ──> now playing
+                                                     ├──> stall watchdog ──> reconnect / auto-skip
+                                                     └──> raw stream recorder ──> data/recordings/
+```
+
+The UI is rendered as a single ANSI frame by Spectre.Console. Playback is isolated behind an `IAudioPlayer` abstraction, while the station repository owns persistence, catalog refresh, favorites, imports, and exports.
+
+## Data and files
+
+Axplayer creates its runtime data next to the executable unless `--data-dir` is supplied:
+
+```text
+data/
+├── settings.json       # volume, theme, last station, visualizer and network settings
+├── stations.json       # catalog, custom stations, favorites and play counts
+├── favorites.txt       # default export/import target for favorites
+├── logs/               # timestamped diagnostics
+└── recordings/         # raw stream recordings created with R
+```
+
+The single-file publish embeds the LibVLC runtime and extracts native components to a temporary directory on first launch. A normal framework-dependent run uses the restored NuGet assets instead.
+
+## Project layout
+
+```text
 src/Axplayer/
-├── Program.cs              # Entry point, CLI args, self-check/probe/test modes
-├── App.cs                  # Main loop, input handling, playback control, resilience
-├── AppPaths.cs             # Data directory layout
-├── Logger.cs               # Timestamped file logging (data/logs/)
-├── Config/
-│   ├── AppSettings.cs      # Settings model with defaults
-│   └── SettingsManager.cs  # settings.json persistence
-├── Data/
-│   ├── Station.cs          # Station model
-│   ├── StationRepository.cs# stations.json persistence, favorites, import/export, catalog refresh
-│   ├── FmstreamCatalog.cs  # fmstream.org directory loader (search → expand → filter)
-│   ├── FavoritesManager.cs # Favorites facade
-│   └── DefaultStations.cs  # Offline fallback station list (few picks)
+├── Program.cs                 # CLI parsing, help, probes, smoke tests and self-check
+├── App.cs                     # application state, input, playback and reconnect loop
 ├── Audio/
-│   ├── IAudioPlayer.cs     # Playback abstraction + state enum
-│   ├── LibVlcPlayer.cs     # LibVLC backend
-│   ├── LibVlcLocator.cs    # Finds libvlc binaries (normal & single-file publish)
-│   ├── StreamProbe.cs      # URL validation / ICY header discovery
-│   └── IcyMetadataReader.cs# Real-time StreamTitle parsing
-├── Recording/
-│   └── StreamRecorder.cs   # Raw stream → file
+│   ├── LibVlcPlayer.cs        # LibVLC playback backend
+│   ├── StreamProbe.cs         # URL validation and stream headers
+│   └── IcyMetadataReader.cs   # live StreamTitle parsing
+├── Config/                    # settings model and JSON persistence
+├── Data/
+│   ├── StationRepository.cs   # station storage, favorites and catalog refresh
+│   └── FmstreamCatalog.cs     # categorized fmstream.org loader
+├── Recording/                 # raw stream recording
 └── UI/
-    ├── MainLayout.cs       # Frame composition (UiSnapshot → ANSI string)
-    ├── StationListView.cs  # Scrolling station rows
-    ├── NowPlayingBar.cs    # Title + stats lines
-    ├── Visualizer.cs       # Simulated spectrum analyzer + VU meter
-    ├── PromptSession.cs    # In-TUI text input
-    ├── Terminal.cs         # VT/UTF-8 console setup
-    └── UiTheme.cs          # Dark / light palettes
+    ├── MainLayout.cs          # complete frame composition
+    ├── StationListView.cs     # station rows and selection
+    ├── NowPlayingBar.cs       # playback metadata and status
+    └── Visualizer.cs          # procedural terminal spectrum display
 ```
 
-## Notes & limitations
+## Known limits
 
-- **Catalog freshness & rate limits.** axplayer fetches the station catalog from
-  fmstream.org on first run and only re-fetches on `Ctrl+R` / `--refresh-catalog`.
-  The fetcher spaces out requests and retries `429`/`5xx` with backoff out of respect
-  for the directory. Fast, repeated refreshes may still be throttled briefly; the
-  previous cached list is always kept on failure.
-- The spectrum analyzer uses a **procedural simulation** driven by the play state:
-  console apps don't get decoded PCM from LibVLC, so the bars are "inspired by"
-  the music rather than measured. It reacts to play/pause and intensity settings.
-- ICY metadata requires the server to honor `Icy-MetaData: 1`; some servers
-  (e.g. certain Zeno.fm frontends) don't, and the app then falls back to VLC's
-  metadata or shows "(no metadata yet)".
-- Mouse interaction is not supported; the UI is keyboard-first.
-- The recorder saves the raw stream bytes (no transcoding), so files are named
-  by the stream's likely format (`.mp3`, `.aac`, `.ogg`).
+- The visualizer is **procedurally simulated**, not decoded PCM. LibVLC plays the audio internally, and this console app does not receive sample data for the bars.
+- Live titles depend on server metadata. A stream must honor `Icy-MetaData: 1`; otherwise Axplayer uses LibVLC metadata when available or displays no title.
+- Catalog refresh depends on fmstream.org. Requests are rate-gated and retried with backoff; the cached list is retained if refresh fails.
+- Recordings contain raw stream bytes without transcoding. The file extension is inferred from the stream’s likely format.
+- The interactive UI requires a real keyboard terminal; use `--probe`, `--play-test`, `--check`, or `--ui-preview` for non-interactive diagnostics.
+
+## License
+
+No license file is currently included in this repository. Add a `LICENSE` file before distributing Axplayer so reuse terms are explicit.

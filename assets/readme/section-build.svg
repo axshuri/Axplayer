@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="150" viewBox="0 0 1200 150" role="img" aria-labelledby="title desc">
+  <title id="title">Build and run</title>
+  <desc id="desc">Axplayer build and run section header with a terminal prompt and portable executable marker.</desc>
+  <rect width="1200" height="150" rx="22" fill="#171d22" stroke="#35424a" stroke-width="2"/>
+  <path d="M58 109H1142" stroke="#35424a"/>
+  <text x="60" y="65" fill="#98c379" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="17">$ dotnet publish</text>
+  <text x="60" y="106" fill="#f5f7f9" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="36" font-weight="700">Build once. Run from any terminal.</text>
+  <g transform="translate(930 43)" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">
+    <rect width="190" height="40" rx="8" fill="#202a30" stroke="#50616b"/>
+    <text x="18" y="26" fill="#e5c07b" font-size="16">Axplayer.exe</text>
+    <path d="M164 14l10 7-10 7" fill="none" stroke="#98c379" stroke-width="2"/>
+  </g>
+</svg>

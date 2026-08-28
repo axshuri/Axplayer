@@ -1,0 +1,10 @@
+# .NET build output
+bin/
+obj/
+*.user
+
+# Axplayer runtime data (settings, station list, logs, recordings)
+src/Axplayer/data/
+
+# Scratch files
+*.tmp

@@ -5,10 +5,14 @@
 Axplayer brings a full radio workflow into a retro terminal UI: browse categorized stations, play Icecast/Shoutcast streams, follow live song metadata, save favorites, record raw audio, and keep listening when a stream briefly drops.
 
 <p align="center">
-  <img src="docs/preview.txt" alt="Axplayer terminal interface showing stations, playback status, now-playing metadata, recording status, and an ASCII spectrum visualizer" width="100%">
+  <img src="assets/readme/hero.svg" width="100%" alt="Axplayer terminal radio player with station list, live metadata, playback status, and spectrum visualizer">
 </p>
 
-> The preview above is plain-text output from `--ui-preview`, so the repository’s actual interface remains inspectable without a screenshot.
+> The hero is a static SVG made from Axplayer’s real terminal vocabulary: station rows, playback state, ICY metadata, keyboard controls, and spectrum bars.
+
+<p align="center">
+  <img src="assets/readme/workflow.svg" width="100%" alt="Axplayer workflow from catalog and station selection through LibVLC playback, metadata, recovery, and recording">
+</p>
 
 ## Why Axplayer?
 
@@ -17,6 +21,10 @@ Axplayer brings a full radio workflow into a retro terminal UI: browse categoriz
 - **A catalog that is useful on first launch.** Stations are fetched by genre from [fmstream.org](http://nossl.fmstream.org), cached locally, and replaced by a small built-in fallback when the directory is unavailable.
 - **Designed for unreliable streams.** Buffering state, a stall watchdog, exponential-backoff reconnects, and optional auto-skip keep a dead station from blocking the session.
 - **Your local radio library.** Favorites, imported stations, play counts, settings, logs, and recordings live under one `data/` directory.
+
+<p align="center">
+  <img src="assets/readme/section-build.svg" width="100%" alt="Build and run Axplayer from a terminal">
+</p>
 
 ## Quick start
 
@@ -59,6 +67,10 @@ To launch it as `axplayer` from a new terminal window, optionally add the publis
 ```bat
 add-to-path.bat
 ```
+
+<p align="center">
+  <img src="assets/readme/section-controls.svg" width="100%" alt="Keyboard-first Axplayer controls">
+</p>
 
 ## TUI controls
 

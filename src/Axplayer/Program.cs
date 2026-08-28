@@ -233,8 +233,8 @@ internal static class Program
               N        Add station     D     Delete            E     Edit station
               Ctrl+D   Delete all      S     Stop              /     Search
               R        Record stream   I     Station info      T     Sleep timer
-              Ctrl+R   Refresh catalog X     Export favorites  L     Import favorites
-              C        Cycle theme     Q/Esc Quit
+              Ctrl+R   Refresh catalog Ctrl+D Delete all       X     Export favorites
+              L        Import favorites C     Cycle theme       Q/Esc Quit
             """);
     }
 

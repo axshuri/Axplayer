@@ -67,6 +67,9 @@ public sealed class App : IDisposable
     private bool _prevFeedAlive;
     private long _lastTimeMs;
     private DateTime _lastTimeProgress = DateTime.Now;
+    private DateTime _lastBufferStatusAt = DateTime.MinValue;
+    private DateTime _bufferStartedAtUtc;
+    private bool _bufferFallbackAttempted;
     private bool _promptCursorOn;
 
     private enum PendingPrompt
@@ -195,8 +198,12 @@ public sealed class App : IDisposable
                 {
                     var finished = _prompt;
                     _prompt = null;
-                    HandlePromptResult(_pending, finished);
-                    _pending = PendingPrompt.None;
+                    var completedKind = _pending;
+                    HandlePromptResult(completedKind, finished);
+                    // HandlePromptResult may advance a multi-step prompt (add/edit).
+                    // Only clear the pending kind when no replacement prompt was started.
+                    if (_prompt is null)
+                        _pending = PendingPrompt.None;
                 }
             }
             else
@@ -354,6 +361,10 @@ public sealed class App : IDisposable
     {
         if (session.Cancelled)
         {
+            _editTarget = null;
+            _addName = "";
+            _addUrl = "";
+            _addGenre = "";
             if (kind == PendingPrompt.Search)
             {
                 _searching = !string.IsNullOrEmpty(_search);
@@ -386,7 +397,8 @@ public sealed class App : IDisposable
 
             case PendingPrompt.EditName:
                 if (_editTarget is null) break;
-                if (value.Length > 0) _editTarget.Name = value;
+                if (value.Length == 0) { SetStatus("Edit cancelled — name required.", true); break; }
+                _editTarget.Name = value;
                 BeginPrompt(PendingPrompt.EditUrl, "Stream URL:", _editTarget.Url);
                 break;
 
@@ -409,6 +421,7 @@ public sealed class App : IDisposable
                 _repo.Update(_editTarget);
                 RebuildFilter();
                 SetStatus($"Updated {_editTarget.Name} ✓");
+                _editTarget = null;
                 break;
 
             case PendingPrompt.Search:
@@ -535,6 +548,9 @@ public sealed class App : IDisposable
         _bufferModeActive = bufferMode;
         _bufferPlayStarted = false;
         _bufferStartedAt = DateTime.UtcNow;
+        _bufferStartedAtUtc = DateTime.UtcNow;
+        _lastBufferStatusAt = DateTime.MinValue;
+        _bufferFallbackAttempted = false;
         _prevFeedAlive = false;
 
         if (bufferMode)
@@ -579,6 +595,16 @@ public sealed class App : IDisposable
     {
         if (!_bufferModeActive || _buffer is not { IsActive: true }) return;
 
+        // Never leave startup stuck indefinitely. If the feed does not produce
+        // enough data within the startup grace period, fall back to direct VLC
+        // playback for this station rather than waiting forever at one percent.
+        if (!_bufferPlayStarted && !_bufferFallbackAttempted &&
+            DateTime.UtcNow - _bufferStartedAtUtc >= BufferStartupTimeout())
+        {
+            DisableBufferForCurrentStation("Startup buffer timed out — buffer disabled for this station; trying direct playback…");
+            return;
+        }
+
         if (_buffer.IsDead)
         {
             HandleFeedDead();
@@ -588,14 +614,20 @@ public sealed class App : IDisposable
         if (!_bufferPlayStarted)
         {
             // Initial fill: hold off until the startup pre-roll has accumulated.
+            // A stream can be delivered in chunks larger than the final poll,
+            // so use the same threshold for both readiness and displayed progress.
             if (_buffer.FeedAlive && _buffer.FileLengthBytes >= InitialFillBytes())
                 StartBufferPlayback();
-            else if (_buffer.FeedAlive)
+            else if (_buffer.FeedAlive && DateTime.UtcNow - _lastBufferStatusAt >= TimeSpan.FromSeconds(1))
             {
+                _lastBufferStatusAt = DateTime.UtcNow;
+                long required = InitialFillBytes();
+                long buffered = _buffer.FileLengthBytes;
                 int remaining = StartupBufferRemaining();
+                int percent = required <= 0 ? 100 : (int)Math.Clamp(buffered * 100L / required, 0, 99);
                 SetStatus(remaining > 0
-                    ? $"{_currentStation?.Name} — startup buffer: {remaining}s remaining…"
-                    : $"{_currentStation?.Name} — startup buffer: almost ready…");
+                    ? $"{_currentStation?.Name} — startup buffer: {percent}% ({remaining}s remaining)…"
+                    : $"{_currentStation?.Name} — startup buffer: {percent}% (almost ready…)");
             }
             else if (!_buffer.FeedAlive && _prevFeedAlive)
                 SetStatus($"{_currentStation?.Name} — connecting…", true);
@@ -629,6 +661,27 @@ public sealed class App : IDisposable
     {
         _bufferPlayStarted = true;
         _player.Play(_buffer!.StreamUrl!);
+    }
+
+    private TimeSpan BufferStartupTimeout()
+    {
+        int seconds = Math.Max(1, _settingsManager.Settings.StartupBufferSeconds);
+        return TimeSpan.FromSeconds(Math.Max(15, seconds * 5));
+    }
+
+    private void DisableBufferForCurrentStation(string message)
+    {
+        if (_currentStation is null) return;
+
+        _bufferFallbackAttempted = true;
+        _bufferModeActive = false;
+        _bufferPlayStarted = false;
+        _buffer?.Stop();
+        _player.Stop();
+        SetStatus(message, true);
+        _player.Play(_currentStation.Url);
+        _metadata.Start(_currentStation.Url);
+        Logger.Warn($"Buffer startup failed for {_currentStation.Name}; disabled for current playback.");
     }
 
     private void HandleFeedDead()
